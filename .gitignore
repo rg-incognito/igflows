@@ -1,0 +1,26 @@
+# Credentials - NEVER commit these
+drive_token.json
+ig_session.json
+bot_config.json
+credentials.json
+
+# Large files
+reels/
+music/
+output/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# State files (managed via Google Drive)
+tracker.json
+checkpoint.json
+all_videos.json
+sheet_id.json
+
+# Temp
+*.tmp
