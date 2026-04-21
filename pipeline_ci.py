@@ -136,37 +136,42 @@ def get_trending_music(tracker, force_track_id=None):
         print(f"  Resumed music: {force_track_id}")
         return {"id": force_track_id, "title": f"Short {force_track_id}", "artist": "YouTube Short"}, audio_file
 
-    query = random.choice(SEARCH_QUERIES)
-    print(f"  Searching YT Shorts: \"{query}\"")
-
-    # Fetch metadata for top 10 results, filter to Shorts (<= 65s)
-    result = subprocess.run([
-        sys.executable, "-m", "yt_dlp",
-        f"ytsearch10:{query}",
-        "--print", "%(id)s\t%(title)s\t%(duration)s",
-        "--no-download", "--quiet"
-    ], capture_output=True, text=True, timeout=60)
-
+    # Try both queries, use whichever returns results first
     candidates = []
-    for line in result.stdout.strip().split("\n"):
-        parts = line.strip().split("\t")
-        if len(parts) >= 3:
-            vid_id, title = parts[0].strip(), parts[1].strip()
+    used_query = ""
+    for query in random.sample(SEARCH_QUERIES, len(SEARCH_QUERIES)):
+        print(f"  Searching YT Shorts: \"{query}\"")
+        result = subprocess.run([
+            sys.executable, "-m", "yt_dlp",
+            f"ytsearch10:{query}",
+            "--flat-playlist", "--dump-json", "--quiet", "--no-warnings"
+        ], capture_output=True, text=True, timeout=90)
+
+        for line in result.stdout.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
             try:
-                dur = int(parts[2].strip())
-                if dur <= 65:
-                    candidates.append((vid_id, title, dur))
-            except (ValueError, IndexError):
+                info = json.loads(line)
+                vid_id = info.get("id", "")
+                title  = info.get("title", "Unknown")
+                dur    = info.get("duration") or 0
+                if vid_id:
+                    candidates.append((vid_id, title, int(dur)))
+            except (json.JSONDecodeError, ValueError):
                 pass
 
+        if candidates:
+            used_query = query
+            break
+
     if not candidates:
-        # Fallback: use first result regardless of duration
-        lines = [l for l in result.stdout.strip().split("\n") if "\t" in l]
-        if not lines:
-            raise RuntimeError(f"No results for query: {query}")
-        parts = lines[0].split("\t")
-        candidates = [(parts[0].strip(), parts[1].strip() if len(parts) > 1 else "Unknown", 60)]
-        print(f"  No Shorts found — falling back to first result")
+        raise RuntimeError("YT search returned no results for any query — check yt-dlp or network")
+
+    # Prefer Shorts (<= 65s), fall back to any result
+    shorts = [c for c in candidates if c[2] <= 65]
+    pool = shorts[:5] if shorts else candidates[:5]
+    print(f"  Found {len(candidates)} results, {len(shorts)} Shorts")
 
     # Avoid recently used tracks, then pick random from top 5
     recently_used = set(tracker.get("used_music", []))
