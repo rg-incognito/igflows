@@ -37,7 +37,7 @@ LOCAL_REELS_DIR = Path("reels")
 LOCAL_MUSIC_DIR = Path("music")
 
 # IG pipeline does not use yt_token — only tracker, checkpoint, video index, sheet id
-STATE_FILES = ["tracker.json", "checkpoint.json", "all_videos.json", "sheet_id.json", "ig_session.json"]
+STATE_FILES = ["ig_tracker.json", "ig_checkpoint.json", "all_videos.json", "ig_sheet_id.json", "ig_session.json"]
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
 def get_service():

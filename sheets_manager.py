@@ -21,7 +21,7 @@ SCOPES = [
 ]
 
 DRIVE_TOKEN_FILE = Path("drive_token.json")
-SHEET_ID_FILE    = Path("sheet_id.json")
+SHEET_ID_FILE    = Path("ig_sheet_id.json")
 SHEET_TITLE      = "Bike IG Reels Tracker"
 
 HEADERS = [

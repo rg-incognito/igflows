@@ -75,13 +75,13 @@ def progress_done(label):
 
 # ─── TRACKER ──────────────────────────────────────────────────────────────────
 def load_tracker():
-    if Path("tracker.json").exists():
-        with open("tracker.json") as f:
+    if Path("ig_tracker.json").exists():
+        with open("ig_tracker.json") as f:
             return json.load(f)
     return {"used_videos": [], "used_music": [], "posts_today": [], "total_posts": 0}
 
 def save_tracker(data):
-    with open("tracker.json", "w") as f:
+    with open("ig_tracker.json", "w") as f:
         json.dump(data, f, indent=2)
 
 def get_available_videos(tracker):

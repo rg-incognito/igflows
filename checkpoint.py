@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-CHECKPOINT_FILE = Path(os.environ.get("PIPELINE_BASE_DIR", ".")) / "checkpoint.json"
+CHECKPOINT_FILE = Path(os.environ.get("PIPELINE_BASE_DIR", ".")) / "ig_checkpoint.json"
 
 STEPS = [
     "idle",
