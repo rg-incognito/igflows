@@ -131,8 +131,10 @@ def _yt_dlp_cmd(extra_args):
     return cmd
 
 def _download_short_audio(vid_id):
-    """Download audio from a YouTube Short by ID."""
+    """Download audio from a YouTube Short by ID. Returns path or None on failure."""
     audio_file = MUSIC_DIR / f"yt_short_{vid_id}.mp3"
+    if audio_file.exists():
+        return audio_file
     print(f"  Downloading audio from Short {vid_id}...")
     result = subprocess.run(
         _yt_dlp_cmd([
@@ -143,8 +145,9 @@ def _download_short_audio(vid_id):
         ]),
         capture_output=True, text=True, timeout=120
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"Audio download failed: {result.stderr[-300:]}")
+    if result.returncode != 0 or not audio_file.exists():
+        print(f"  Skipping {vid_id} — {result.stderr[-120:].strip()}")
+        return None
     return audio_file
 
 def get_trending_music(tracker, force_track_id=None):
@@ -203,32 +206,36 @@ def get_trending_music(tracker, force_track_id=None):
             print(f"  Search returned {len(candidates)} results")
             break
 
-    if not candidates:
-        print("  Live search returned nothing — using fallback song list")
-        recently_used = set(tracker.get("used_music", []))
-        pool_fb = [f for f in FALLBACK_IDS if f[0] not in recently_used] or FALLBACK_IDS
-        fb_id, fb_title = random.choice(pool_fb)
-        audio_file = MUSIC_DIR / f"yt_short_{fb_id}.mp3"
-        if not audio_file.exists():
-            audio_file = _download_short_audio(fb_id)
-        return {"id": fb_id, "title": fb_title, "artist": "Fallback"}, audio_file
-
-    # Prefer Shorts (<= 65s), fall back to any result
-    shorts = [c for c in candidates if c[2] <= 65]
-    pool = shorts[:5] if shorts else candidates[:5]
-    print(f"  Shorts found: {len(shorts)}/{len(candidates)}")
-
     recently_used = set(tracker.get("used_music", []))
-    pool = [c for c in pool if c[0] not in recently_used] or pool
 
-    vid_id, title, dur = random.choice(pool)
-    print(f"  Selected: {title[:55]} ({dur}s)")
+    # Build pool: prefer Shorts <= 65s, avoid recently used, try up to 8 candidates
+    if candidates:
+        shorts = [c for c in candidates if c[2] <= 65]
+        pool = shorts[:8] if shorts else candidates[:8]
+        print(f"  Shorts found: {len(shorts)}/{len(candidates)}")
+        fresh = [c for c in pool if c[0] not in recently_used]
+        pool = fresh if fresh else pool
+        random.shuffle(pool)
+    else:
+        pool = []
 
-    audio_file = MUSIC_DIR / f"yt_short_{vid_id}.mp3"
-    if not audio_file.exists():
+    # Try each candidate until one downloads successfully
+    for vid_id, title, dur in pool:
+        print(f"  Trying: {title[:50]} ({dur}s)")
         audio_file = _download_short_audio(vid_id)
+        if audio_file:
+            return {"id": vid_id, "title": title, "artist": "YouTube Short"}, audio_file
 
-    return {"id": vid_id, "title": title, "artist": "YouTube Short"}, audio_file
+    # All search results failed — use fallback list
+    print("  All search results failed — using fallback song list")
+    pool_fb = [f for f in FALLBACK_IDS if f[0] not in recently_used] or list(FALLBACK_IDS)
+    random.shuffle(pool_fb)
+    for fb_id, fb_title in pool_fb:
+        audio_file = _download_short_audio(fb_id)
+        if audio_file:
+            return {"id": fb_id, "title": fb_title, "artist": "Fallback"}, audio_file
+
+    raise RuntimeError("All music sources failed — check yt-dlp and cookies")
 
 # ─── VIDEO PROCESSING ─────────────────────────────────────────────────────────
 def get_duration(media_path):
