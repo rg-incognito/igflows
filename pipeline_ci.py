@@ -146,7 +146,8 @@ def _download_short_audio(vid_id):
         capture_output=True, text=True, timeout=120
     )
     if result.returncode != 0 or not audio_file.exists():
-        print(f"  Skipping {vid_id} — {result.stderr[-120:].strip()}")
+        err = result.stderr.replace("\n", " ").strip()[-400:]
+        print(f"  Skipping {vid_id} — {err}")
         return None
     return audio_file
 
