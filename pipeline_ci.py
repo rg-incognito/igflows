@@ -136,15 +136,29 @@ def get_trending_music(tracker, force_track_id=None):
         print(f"  Resumed music: {force_track_id}")
         return {"id": force_track_id, "title": f"Short {force_track_id}", "artist": "YouTube Short"}, audio_file
 
-    # Try both queries, use whichever returns results first
+    # Popular Hindi/Bollywood bike reel songs — used if live search fails in CI
+    FALLBACK_IDS = [
+        ("BddP6PYo2gs", "Mere Gully Mein - DIVINE"),
+        ("kffacxfA7G4", "Tum Hi Ho - Arijit Singh"),
+        ("Co_GiAMDjAc", "Ziddi Dil - Vishal Dadlani"),
+        ("reUZRyXxUs4", "Lamberghini - The Doorbeen"),
+        ("hFNj-gBDHqk", "Kala Chashma - Baar Baar Dekho"),
+        ("YQHsXMglC9A", "Shake It Off"),
+        ("RgKAFK5djSk", "See You Again - Wiz Khalifa"),
+    ]
+
+    UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
     candidates = []
-    used_query = ""
     for query in random.sample(SEARCH_QUERIES, len(SEARCH_QUERIES)):
         print(f"  Searching YT Shorts: \"{query}\"")
+
+        # Try 1: ytsearch with browser user-agent
         result = subprocess.run([
             sys.executable, "-m", "yt_dlp",
             f"ytsearch10:{query}",
-            "--flat-playlist", "--dump-json", "--quiet", "--no-warnings"
+            "--flat-playlist", "--dump-json", "--quiet", "--no-warnings",
+            "--user-agent", UA,
         ], capture_output=True, text=True, timeout=90)
 
         for line in result.stdout.strip().split("\n"):
@@ -162,22 +176,26 @@ def get_trending_music(tracker, force_track_id=None):
                 pass
 
         if candidates:
-            used_query = query
+            print(f"  Search returned {len(candidates)} results")
             break
 
     if not candidates:
-        raise RuntimeError("YT search returned no results for any query — check yt-dlp or network")
+        print("  Live search returned nothing — using fallback song list")
+        recently_used = set(tracker.get("used_music", []))
+        pool_fb = [f for f in FALLBACK_IDS if f[0] not in recently_used] or FALLBACK_IDS
+        fb_id, fb_title = random.choice(pool_fb)
+        audio_file = MUSIC_DIR / f"yt_short_{fb_id}.mp3"
+        if not audio_file.exists():
+            audio_file = _download_short_audio(fb_id)
+        return {"id": fb_id, "title": fb_title, "artist": "Fallback"}, audio_file
 
     # Prefer Shorts (<= 65s), fall back to any result
     shorts = [c for c in candidates if c[2] <= 65]
     pool = shorts[:5] if shorts else candidates[:5]
-    print(f"  Found {len(candidates)} results, {len(shorts)} Shorts")
+    print(f"  Shorts found: {len(shorts)}/{len(candidates)}")
 
-    # Avoid recently used tracks, then pick random from top 5
     recently_used = set(tracker.get("used_music", []))
-    pool = [c for c in candidates[:5] if c[0] not in recently_used]
-    if not pool:
-        pool = candidates[:5]
+    pool = [c for c in pool if c[0] not in recently_used] or pool
 
     vid_id, title, dur = random.choice(pool)
     print(f"  Selected: {title[:55]} ({dur}s)")
