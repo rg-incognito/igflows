@@ -26,11 +26,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install ffmpeg
+      - name: Install ffmpeg + Node.js for yt-dlp EJS
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg nodejs
           ffmpeg -version | head -1
+          node --version
 
       - name: Set up Python
         uses: actions/setup-python@v5

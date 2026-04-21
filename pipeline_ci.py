@@ -41,10 +41,10 @@ TG_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 FORCE_RUN  = os.environ.get("FORCE_RUN", "false").lower() == "true"
 
-# Two search queries rotated each run — both target 2026 trending bike shorts
+# Search for actual music videos — NOT bike reels (those return image carousels)
 SEARCH_QUERIES = [
-    "trending bike reels hindi song 2026 shorts",
-    "bike status hindi new song 2026 shorts",
+    "trending hindi song 2026 official audio",
+    "new bollywood song 2026 audio",
 ]
 
 for d in [REELS_DIR, MUSIC_DIR, OUTPUT_DIR, TEMP_DIR]:
@@ -164,15 +164,18 @@ def get_trending_music(tracker, force_track_id=None):
         print(f"  Resumed music: {force_track_id}")
         return {"id": force_track_id, "title": f"Short {force_track_id}", "artist": "YouTube Short"}, audio_file
 
-    # Popular Hindi/Bollywood bike reel songs — used if live search fails in CI
+    # NCS fallback tracks — same library as YT pipeline, guaranteed to download
     FALLBACK_IDS = [
-        ("BddP6PYo2gs", "Mere Gully Mein - DIVINE"),
-        ("kffacxfA7G4", "Tum Hi Ho - Arijit Singh"),
-        ("Co_GiAMDjAc", "Ziddi Dil - Vishal Dadlani"),
-        ("reUZRyXxUs4", "Lamberghini - The Doorbeen"),
-        ("hFNj-gBDHqk", "Kala Chashma - Baar Baar Dekho"),
-        ("YQHsXMglC9A", "Shake It Off"),
-        ("RgKAFK5djSk", "See You Again - Wiz Khalifa"),
+        ("D9syciL3Xsg", "Fade - Alan Walker"),
+        ("BSDPQ1uP7GI", "Spectre - Alan Walker"),
+        ("TW9d8vYrVFQ", "Elektronomia - Sky High"),
+        ("9iHM6X6uUH8", "Jim Yosef - Link"),
+        ("yJg-Y5byMMw", "Warriyo - Mortals"),
+        ("eyLml-zzXzw", "Tobu - Colors"),
+        ("cNcy3J4x62M", "Elektronomia - Limitless"),
+        ("L7kF4MXXCoA", "Lost Sky - Dreams"),
+        ("lW9ep22YmlM", "Egzod & Maestro Chives - Royalty"),
+        ("1-0-4HqyvXE", "Tobu & Itro - Sunburst"),
     ]
 
     UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
