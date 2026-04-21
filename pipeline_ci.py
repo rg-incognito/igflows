@@ -41,11 +41,7 @@ TG_TOKEN   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 FORCE_RUN  = os.environ.get("FORCE_RUN", "false").lower() == "true"
 
-# Search for actual music videos — NOT bike reels (those return image carousels)
-SEARCH_QUERIES = [
-    "trending hindi song 2026 official audio",
-    "new bollywood song 2026 audio",
-]
+MUSIC_SUBFOLDER = "music"
 
 for d in [REELS_DIR, MUSIC_DIR, OUTPUT_DIR, TEMP_DIR]:
     d.mkdir(parents=True, exist_ok=True)
@@ -108,138 +104,48 @@ def get_available_videos(tracker):
     return available
 
 # ─── MUSIC: SEARCH YT SHORTS + EXTRACT AUDIO ─────────────────────────────────
-def _write_cookies():
-    """Write YT_COOKIES secret to disk if available. Returns path or None."""
-    cookies_raw = os.environ.get("YT_COOKIES", "")
-    if not cookies_raw:
-        return None
-    cookies_file = Path("yt_cookies.txt")
-    cookies_file.write_text(cookies_raw)
-    return str(cookies_file)
-
-def _yt_dlp_cmd(extra_args):
-    """Base yt-dlp command with cookies and user-agent if available."""
-    cmd = [sys.executable, "-m", "yt_dlp"]
-    cookies_file = _write_cookies()
-    if cookies_file:
-        cmd += ["--cookies", cookies_file]
-    cmd += [
-        "--user-agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ]
-    cmd += extra_args
-    return cmd
-
-def _download_short_audio(vid_id):
-    """Download audio from a YouTube Short by ID. Returns path or None on failure."""
-    audio_file = MUSIC_DIR / f"yt_short_{vid_id}.mp3"
-    if audio_file.exists():
-        return audio_file
-    print(f"  Downloading audio from Short {vid_id}...")
-    result = subprocess.run(
-        _yt_dlp_cmd([
-            "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
-            "-o", str(MUSIC_DIR / f"yt_short_{vid_id}.%(ext)s"),
-            "--no-playlist", "--quiet",
-            f"https://www.youtube.com/watch?v={vid_id}"
-        ]),
-        capture_output=True, text=True, timeout=120
-    )
-    if result.returncode != 0 or not audio_file.exists():
-        err = result.stderr.replace("\n", " ").strip()[-400:]
-        print(f"  Skipping {vid_id} — {err}")
-        return None
-    return audio_file
-
 def get_trending_music(tracker, force_track_id=None):
     """
-    Search YouTube Shorts for trending bike reels, pick a random one from top 5,
-    extract its audio. On checkpoint resume, re-downloads the same track by ID.
+    Pick a random MP3 from Drive's music/ subfolder.
+    - Same folder the YT pipeline uses (NCS tracks already there)
+    - Add any Hindi/Bollywood MP3s to that folder to use them here too
+    - On checkpoint resume, re-downloads the exact same file by name
     """
-    # Resume path: same track, re-download if needed
-    if force_track_id:
-        audio_file = MUSIC_DIR / f"yt_short_{force_track_id}.mp3"
-        if not audio_file.exists():
-            audio_file = _download_short_audio(force_track_id)
-        print(f"  Resumed music: {force_track_id}")
-        return {"id": force_track_id, "title": f"Short {force_track_id}", "artist": "YouTube Short"}, audio_file
+    service = drive.get_service()
+    folder_id = os.environ.get("GDRIVE_FOLDER_ID", "1CivbmOzwqkCmyOZmmC7UC2p6EGDitjCB")
+    music_folder_id = drive.find_or_create_folder(service, MUSIC_SUBFOLDER, folder_id)
 
-    # NCS fallback tracks — same library as YT pipeline, guaranteed to download
-    FALLBACK_IDS = [
-        ("D9syciL3Xsg", "Fade - Alan Walker"),
-        ("BSDPQ1uP7GI", "Spectre - Alan Walker"),
-        ("TW9d8vYrVFQ", "Elektronomia - Sky High"),
-        ("9iHM6X6uUH8", "Jim Yosef - Link"),
-        ("yJg-Y5byMMw", "Warriyo - Mortals"),
-        ("eyLml-zzXzw", "Tobu - Colors"),
-        ("cNcy3J4x62M", "Elektronomia - Limitless"),
-        ("L7kF4MXXCoA", "Lost Sky - Dreams"),
-        ("lW9ep22YmlM", "Egzod & Maestro Chives - Royalty"),
-        ("1-0-4HqyvXE", "Tobu & Itro - Sunburst"),
-    ]
-
-    UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
-    candidates = []
-    for query in random.sample(SEARCH_QUERIES, len(SEARCH_QUERIES)):
-        print(f"  Searching YT Shorts: \"{query}\"")
-
-        result = subprocess.run(
-            _yt_dlp_cmd([
-                f"ytsearch10:{query}",
-                "--flat-playlist", "--dump-json", "--quiet", "--no-warnings",
-            ]),
-            capture_output=True, text=True, timeout=90
-        )
-
-        for line in result.stdout.strip().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                info = json.loads(line)
-                vid_id = info.get("id", "")
-                title  = info.get("title", "Unknown")
-                dur    = info.get("duration") or 0
-                if vid_id:
-                    candidates.append((vid_id, title, int(dur)))
-            except (json.JSONDecodeError, ValueError):
-                pass
-
-        if candidates:
-            print(f"  Search returned {len(candidates)} results")
-            break
+    # List all MP3s in Drive music folder
+    all_tracks = drive.list_folder(service, music_folder_id, name_filter=".mp3")
+    if not all_tracks:
+        raise RuntimeError("No MP3s found in Drive music/ folder. Upload some tracks first.")
 
     recently_used = set(tracker.get("used_music", []))
+    available = [t for t in all_tracks if t["name"] not in recently_used]
+    if not available:
+        available = all_tracks
 
-    # Build pool: prefer Shorts <= 65s, avoid recently used, try up to 8 candidates
-    if candidates:
-        shorts = [c for c in candidates if c[2] <= 65]
-        pool = shorts[:8] if shorts else candidates[:8]
-        print(f"  Shorts found: {len(shorts)}/{len(candidates)}")
-        fresh = [c for c in pool if c[0] not in recently_used]
-        pool = fresh if fresh else pool
-        random.shuffle(pool)
+    # Resume: use same track
+    if force_track_id:
+        match = next((t for t in all_tracks if t["name"] == force_track_id), None)
+        if match:
+            audio_file = MUSIC_DIR / force_track_id
+            if not audio_file.exists():
+                drive.download_file(service, match["id"], audio_file)
+            return {"id": force_track_id, "title": force_track_id.replace(".mp3",""), "artist": "Drive"}, audio_file
+
+    chosen = random.choice(available)
+    track_name = chosen["name"]
+    audio_file = MUSIC_DIR / track_name
+
+    if not audio_file.exists():
+        print(f"  Downloading from Drive: {track_name}")
+        drive.download_file(service, chosen["id"], audio_file)
     else:
-        pool = []
+        print(f"  Using cached: {track_name}")
 
-    # Try each candidate until one downloads successfully
-    for vid_id, title, dur in pool:
-        print(f"  Trying: {title[:50]} ({dur}s)")
-        audio_file = _download_short_audio(vid_id)
-        if audio_file:
-            return {"id": vid_id, "title": title, "artist": "YouTube Short"}, audio_file
-
-    # All search results failed — use fallback list
-    print("  All search results failed — using fallback song list")
-    pool_fb = [f for f in FALLBACK_IDS if f[0] not in recently_used] or list(FALLBACK_IDS)
-    random.shuffle(pool_fb)
-    for fb_id, fb_title in pool_fb:
-        audio_file = _download_short_audio(fb_id)
-        if audio_file:
-            return {"id": fb_id, "title": fb_title, "artist": "Fallback"}, audio_file
-
-    raise RuntimeError("All music sources failed — check yt-dlp and cookies")
+    print(f"  Music: {track_name}")
+    return {"id": track_name, "title": track_name.replace(".mp3",""), "artist": "Drive"}, audio_file
 
 # ─── VIDEO PROCESSING ─────────────────────────────────────────────────────────
 def get_duration(media_path):
