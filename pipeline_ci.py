@@ -108,17 +108,41 @@ def get_available_videos(tracker):
     return available
 
 # ─── MUSIC: SEARCH YT SHORTS + EXTRACT AUDIO ─────────────────────────────────
+def _write_cookies():
+    """Write YT_COOKIES secret to disk if available. Returns path or None."""
+    cookies_raw = os.environ.get("YT_COOKIES", "")
+    if not cookies_raw:
+        return None
+    cookies_file = Path("yt_cookies.txt")
+    cookies_file.write_text(cookies_raw)
+    return str(cookies_file)
+
+def _yt_dlp_cmd(extra_args):
+    """Base yt-dlp command with cookies and user-agent if available."""
+    cmd = [sys.executable, "-m", "yt_dlp"]
+    cookies_file = _write_cookies()
+    if cookies_file:
+        cmd += ["--cookies", cookies_file]
+    cmd += [
+        "--user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ]
+    cmd += extra_args
+    return cmd
+
 def _download_short_audio(vid_id):
     """Download audio from a YouTube Short by ID."""
     audio_file = MUSIC_DIR / f"yt_short_{vid_id}.mp3"
     print(f"  Downloading audio from Short {vid_id}...")
-    result = subprocess.run([
-        sys.executable, "-m", "yt_dlp",
-        "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
-        "-o", str(MUSIC_DIR / f"yt_short_{vid_id}.%(ext)s"),
-        "--no-playlist", "--quiet",
-        f"https://www.youtube.com/watch?v={vid_id}"
-    ], capture_output=True, text=True, timeout=120)
+    result = subprocess.run(
+        _yt_dlp_cmd([
+            "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
+            "-o", str(MUSIC_DIR / f"yt_short_{vid_id}.%(ext)s"),
+            "--no-playlist", "--quiet",
+            f"https://www.youtube.com/watch?v={vid_id}"
+        ]),
+        capture_output=True, text=True, timeout=120
+    )
     if result.returncode != 0:
         raise RuntimeError(f"Audio download failed: {result.stderr[-300:]}")
     return audio_file
@@ -153,13 +177,13 @@ def get_trending_music(tracker, force_track_id=None):
     for query in random.sample(SEARCH_QUERIES, len(SEARCH_QUERIES)):
         print(f"  Searching YT Shorts: \"{query}\"")
 
-        # Try 1: ytsearch with browser user-agent
-        result = subprocess.run([
-            sys.executable, "-m", "yt_dlp",
-            f"ytsearch10:{query}",
-            "--flat-playlist", "--dump-json", "--quiet", "--no-warnings",
-            "--user-agent", UA,
-        ], capture_output=True, text=True, timeout=90)
+        result = subprocess.run(
+            _yt_dlp_cmd([
+                f"ytsearch10:{query}",
+                "--flat-playlist", "--dump-json", "--quiet", "--no-warnings",
+            ]),
+            capture_output=True, text=True, timeout=90
+        )
 
         for line in result.stdout.strip().split("\n"):
             line = line.strip()

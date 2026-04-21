@@ -69,6 +69,7 @@ jobs:
           TELEGRAM_CHAT_ID:       ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_RUN_ID:          ${{ github.run_id }}
           FORCE_RUN:              ${{ github.event.inputs.force_run }}
+          YT_COOKIES:             ${{ secrets.YT_COOKIES }}
         run: python pipeline_ci.py
 
       - name: Upload state back to Google Drive
