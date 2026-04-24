@@ -43,6 +43,41 @@ FORCE_RUN  = os.environ.get("FORCE_RUN", "false").lower() == "true"
 
 MUSIC_SUBFOLDER = "music"
 
+# Curated song library — pipeline prefers Drive MP3s whose filenames contain these titles.
+# Falls back to any MP3 in the Drive music/ folder if none match.
+SONG_LIBRARY = [
+    {"title": "Tokyo Drift",           "artist": "Teriyaki Boyz",              "vibe": "🏍️ Classic"},
+    {"title": "Titanium",              "artist": "David Guetta ft. Sia",        "vibe": "🔥 Power"},
+    {"title": "Believer",              "artist": "Imagine Dragons",             "vibe": "🔥 Energy"},
+    {"title": "Bones",                 "artist": "Imagine Dragons",             "vibe": "🔥 Aggressive"},
+    {"title": "Thunder",               "artist": "Imagine Dragons",             "vibe": "🔥 Energy"},
+    {"title": "Starboy",               "artist": "The Weeknd",                  "vibe": "😎 Swag"},
+    {"title": "Blinding Lights",       "artist": "The Weeknd",                  "vibe": "😎 Swag"},
+    {"title": "Power",                 "artist": "Kanye West",                  "vibe": "😎 Attitude"},
+    {"title": "God's Plan",            "artist": "Drake",                       "vibe": "😎 Attitude"},
+    {"title": "Espresso",              "artist": "Sabrina Carpenter",           "vibe": "😎 Trendy"},
+    {"title": "Thunderstruck",         "artist": "AC/DC",                       "vibe": "🎸 Classic Rock"},
+    {"title": "Highway to Hell",       "artist": "AC/DC",                       "vibe": "🎸 Classic Rock"},
+    {"title": "Ride",                  "artist": "Twenty One Pilots",           "vibe": "🌅 Cinematic"},
+    {"title": "Levels",                "artist": "Avicii",                      "vibe": "⚡ EDM"},
+    {"title": "Ghost",                 "artist": "Justin Bieber",               "vibe": "⚡ EDM"},
+    {"title": "Lose Control",          "artist": "Teddy Swims",                 "vibe": "⚡ Vibe"},
+    {"title": "Bad Guy",               "artist": "Billie Eilish",               "vibe": "😎 Dark"},
+    {"title": "Superhero",             "artist": "Metro Boomin ft. Future",     "vibe": "🔥 Hard"},
+    {"title": "Breaking Me",           "artist": "Topic ft. A7S",               "vibe": "⚡ EDM"},
+    {"title": "Mockingbird",           "artist": "Eminem",                      "vibe": "😎 Deep"},
+    {"title": "Lose Yourself",         "artist": "Eminem",                      "vibe": "🔥 Hype"},
+    {"title": "Radioactive",           "artist": "Imagine Dragons",             "vibe": "🔥 Epic"},
+    {"title": "Warriors",              "artist": "Imagine Dragons",             "vibe": "🔥 Epic"},
+    {"title": "On Top of the World",   "artist": "Imagine Dragons",             "vibe": "🌅 Feels"},
+    {"title": "Uptown Funk",           "artist": "Bruno Mars",                  "vibe": "😎 Fun"},
+    {"title": "Can't Hold Us",         "artist": "Macklemore & Ryan Lewis",     "vibe": "🔥 Hype"},
+    {"title": "Hall of Fame",          "artist": "The Script ft. will.i.am",   "vibe": "🌅 Motivational"},
+    {"title": "Whatever It Takes",     "artist": "Imagine Dragons",             "vibe": "🔥 Drive"},
+    {"title": "Purple Rain",           "artist": "Prince",                      "vibe": "🌅 Cinematic"},
+    {"title": "Titanium x Please Me",  "artist": "TRUE CHAD",                   "vibe": "⚡ Currently Viral"},
+]
+
 for d in [REELS_DIR, MUSIC_DIR, OUTPUT_DIR, TEMP_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
@@ -103,36 +138,52 @@ def get_available_videos(tracker):
         available = all_videos
     return available
 
-# ─── MUSIC: SEARCH YT SHORTS + EXTRACT AUDIO ─────────────────────────────────
+# ─── MUSIC SELECTION ──────────────────────────────────────────────────────────
+def _library_meta(filename):
+    """Return SONG_LIBRARY entry whose title appears in filename, or None."""
+    name_lower = filename.lower()
+    return next((s for s in SONG_LIBRARY if s["title"].lower() in name_lower), None)
+
 def get_trending_music(tracker, force_track_id=None):
     """
     Pick a random MP3 from Drive's music/ subfolder.
-    - Same folder the YT pipeline uses (NCS tracks already there)
-    - Add any Hindi/Bollywood MP3s to that folder to use them here too
-    - On checkpoint resume, re-downloads the exact same file by name
+    Prefers files whose names match a SONG_LIBRARY title.
+    Falls back to any MP3 in the folder if none match.
+    On checkpoint resume, re-downloads the exact same file by name.
     """
     service = drive.get_service()
     folder_id = os.environ.get("GDRIVE_FOLDER_ID", "1CivbmOzwqkCmyOZmmC7UC2p6EGDitjCB")
     music_folder_id = drive.find_or_create_folder(service, MUSIC_SUBFOLDER, folder_id)
 
-    # List all MP3s in Drive music folder
     all_tracks = drive.list_folder(service, music_folder_id, name_filter=".mp3")
     if not all_tracks:
         raise RuntimeError("No MP3s found in Drive music/ folder. Upload some tracks first.")
 
-    recently_used = set(tracker.get("used_music", []))
-    available = [t for t in all_tracks if t["name"] not in recently_used]
-    if not available:
-        available = all_tracks
-
-    # Resume: use same track
+    # Resume: re-download exact same track
     if force_track_id:
         match = next((t for t in all_tracks if t["name"] == force_track_id), None)
         if match:
             audio_file = MUSIC_DIR / force_track_id
             if not audio_file.exists():
                 drive.download_file(service, match["id"], audio_file)
-            return {"id": force_track_id, "title": force_track_id.replace(".mp3",""), "artist": "Drive"}, audio_file
+            meta = _library_meta(force_track_id)
+            return {
+                "id": force_track_id,
+                "title": meta["title"] if meta else force_track_id.replace(".mp3", ""),
+                "artist": meta["artist"] if meta else "Drive",
+            }, audio_file
+
+    recently_used = set(tracker.get("used_music", []))
+
+    # Prefer curated library songs available on Drive
+    curated = [t for t in all_tracks if _library_meta(t["name"])]
+    if curated:
+        pool_label = "curated"
+        available = [t for t in curated if t["name"] not in recently_used] or curated
+    else:
+        # Fallback: any MP3 in the folder
+        pool_label = "fallback"
+        available = [t for t in all_tracks if t["name"] not in recently_used] or all_tracks
 
     chosen = random.choice(available)
     track_name = chosen["name"]
@@ -144,8 +195,12 @@ def get_trending_music(tracker, force_track_id=None):
     else:
         print(f"  Using cached: {track_name}")
 
-    print(f"  Music: {track_name}")
-    return {"id": track_name, "title": track_name.replace(".mp3",""), "artist": "Drive"}, audio_file
+    meta = _library_meta(track_name)
+    title  = meta["title"]  if meta else track_name.replace(".mp3", "")
+    artist = meta["artist"] if meta else "Drive"
+    vibe   = meta["vibe"]   if meta else ""
+    print(f"  Music [{pool_label}]: {title} — {artist} {vibe}")
+    return {"id": track_name, "title": title, "artist": artist}, audio_file
 
 # ─── VIDEO PROCESSING ─────────────────────────────────────────────────────────
 def get_duration(media_path):
@@ -340,7 +395,12 @@ def run():
         # Re-download audio if not on disk (new CI job)
         if not audio_file.exists():
             _, audio_file = get_trending_music(tracker, force_track_id=cp["track_id"])
-        track_info = {"id": cp["track_id"], "title": cp.get("track_title", cp["track_id"]), "artist": "YouTube Short"}
+        _meta = _library_meta(cp["track_id"])
+        track_info = {
+            "id": cp["track_id"],
+            "title": cp.get("track_title", cp["track_id"]),
+            "artist": _meta["artist"] if _meta else "Drive",
+        }
 
     durations = cp.get("durations", {})
 

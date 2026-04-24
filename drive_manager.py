@@ -77,7 +77,8 @@ def auth():
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 def find_file(service, name, parent_id):
-    q = f"name='{name}' and '{parent_id}' in parents and trashed=false"
+    escaped = name.replace("\\", "\\\\").replace("'", "\\'")
+    q = f"name='{escaped}' and '{parent_id}' in parents and trashed=false"
     res = service.files().list(q=q, fields="files(id,name)").execute()
     files = res.get("files", [])
     return files[0]["id"] if files else None
