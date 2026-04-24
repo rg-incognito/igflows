@@ -266,22 +266,79 @@ def merge_clips(normalized_files):
     print(" OK")
     return merged
 
+def find_best_audio_segment(audio_file, want_dur, chunk_sec=2):
+    """
+    Single ffmpeg pass: measure RMS energy every chunk_sec seconds.
+    Returns the start time (seconds) of the most energetic want_dur-second window.
+    Skips the first 10s (usually intro/silence) and last 10s (outro).
+    """
+    import tempfile
+    stats_file = Path(tempfile.mktemp(suffix=".txt"))
+    try:
+        subprocess.run([
+            "ffmpeg", "-i", str(audio_file),
+            "-af", (
+                f"astats=metadata=1:reset={chunk_sec},"
+                f"ametadata=mode=print:file={stats_file}"
+            ),
+            "-f", "null", "-"
+        ], capture_output=True, text=True)
+
+        rms_values = []
+        if stats_file.exists():
+            for line in stats_file.read_text(errors="ignore").splitlines():
+                if "lavfi.astats.Overall.RMS_level" in line:
+                    try:
+                        rms_values.append(float(line.split("=")[1].strip()))
+                    except (ValueError, IndexError):
+                        rms_values.append(-100.0)
+    finally:
+        stats_file.unlink(missing_ok=True)
+
+    if not rms_values:
+        return 0.0
+
+    # Skip intro/outro (first/last 10s worth of chunks)
+    skip = max(0, int(10 / chunk_sec))
+    rms_values = rms_values[skip: max(skip + 1, len(rms_values) - skip)]
+
+    window = max(1, round(want_dur / chunk_sec))
+    best_i, best_score = 0, float("-inf")
+
+    for i in range(len(rms_values) - window + 1):
+        valid = [v for v in rms_values[i:i + window] if v > -80]
+        if not valid:
+            continue
+        score = sum(valid) / len(valid)
+        if score > best_score:
+            best_score = score
+            best_i = i
+
+    return (best_i + skip) * chunk_sec  # add back skipped offset
+
 def encode_final(merged_path, audio_file, video_duration, output_path):
     """Cut to whichever is shorter — video or audio — capped at MAX_DURATION."""
     audio_duration = get_duration(audio_file)
     final_dur = min(video_duration, audio_duration, MAX_DURATION)
-    print(f"  Video: {video_duration:.1f}s  Audio: {audio_duration:.1f}s  -> Final: {final_dur:.1f}s")
+
+    print(f"  Analyzing audio for best {final_dur:.0f}s segment...", flush=True)
+    audio_start = find_best_audio_segment(audio_file, final_dur)
+    audio_start = min(audio_start, max(0.0, audio_duration - final_dur))
+
+    print(f"  Video: {video_duration:.1f}s  Audio: {audio_duration:.1f}s  "
+          f"-> Final: {final_dur:.1f}s  (audio from {audio_start:.0f}s)")
+
     run_ffmpeg_progress([
         "ffmpeg", "-y",
         "-i", str(merged_path),
-        "-i", str(audio_file),
+        "-ss", str(audio_start), "-i", str(audio_file),
         "-t", str(final_dur),
         "-map", "0:v", "-map", "1:a",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "24",
         "-c:a", "aac", "-b:a", "192k",
         "-af", f"volume={MUSIC_VOLUME}",
         str(output_path)
-    ], f"Encoding Reel ({final_dur:.0f}s)", final_dur)
+    ], f"Encoding Reel ({final_dur:.0f}s, audio@{audio_start:.0f}s)", final_dur)
     return final_dur
 
 # ─── INSTAGRAM UPLOAD ─────────────────────────────────────────────────────────
