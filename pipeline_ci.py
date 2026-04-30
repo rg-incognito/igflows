@@ -357,6 +357,7 @@ def upload_to_instagram(video_path):
     username    = os.environ.get("IG_USERNAME", "")
     password    = os.environ.get("IG_PASSWORD", "")
     session_raw = os.environ.get("IG_SESSION_JSON", "")
+    fb_page_id  = os.environ.get("IG_FB_PAGE_ID", "61566733402603")
 
     if not username or not password:
         raise RuntimeError("IG_USERNAME and IG_PASSWORD env vars required")
@@ -378,9 +379,17 @@ def upload_to_instagram(video_path):
 
     caption = random.choice(CAPTIONS)
     print(f"  Caption: {caption[:50]}...")
-    print("  Uploading Reel...")
 
-    media = cl.clip_upload(str(video_path), caption=caption)
+    extra_data = {"like_count_hidden": "1"}
+    if fb_page_id:
+        extra_data["share_to_facebook"] = "1"
+        extra_data["facebook_user_page_id"] = fb_page_id
+        print(f"  Cross-posting to FB page: {fb_page_id}")
+    else:
+        print("  IG_FB_PAGE_ID not set — skipping Facebook cross-post")
+
+    print("  Uploading Reel...")
+    media = cl.clip_upload(str(video_path), caption=caption, extra_data=extra_data)
     url = f"https://www.instagram.com/reel/{media.code}/"
 
     print(f"\n  Live: {url}")
