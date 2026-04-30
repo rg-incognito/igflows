@@ -352,6 +352,7 @@ CAPTIONS = [
 ]
 
 def upload_to_instagram(video_path):
+    import logging
     from instagrapi import Client
 
     username    = os.environ.get("IG_USERNAME", "")
@@ -363,6 +364,11 @@ def upload_to_instagram(video_path):
         raise RuntimeError("IG_USERNAME and IG_PASSWORD env vars required")
 
     cl = Client()
+    # Log every private API request body so we can see exactly what's sent
+    cl.logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    cl.logger.addHandler(handler)
 
     # Load saved session to avoid triggering 2FA on every run
     session_file = Path("ig_session.json")
@@ -380,17 +386,34 @@ def upload_to_instagram(video_path):
     caption = random.choice(CAPTIONS)
     print(f"  Caption: {caption[:50]}...")
 
-    extra_data = {"like_count_hidden": 1}
+    # Try both known field names for hiding likes
+    extra_data = {
+        "like_count_hidden": 1,
+        "like_and_view_counts_disabled": 1,
+    }
     if fb_page_id:
         extra_data["share_to_facebook"] = 1
+        # Explicitly pass the FB destination ID as a JSON-encoded list
+        extra_data["share_to_fb_destinations"] = json.dumps([fb_page_id])
         print(f"  Cross-posting to FB page: {fb_page_id}")
     else:
         print("  IG_FB_PAGE_ID not set — skipping Facebook cross-post")
 
+    print(f"  extra_data being sent: {extra_data}")
     print("  Uploading Reel...")
     media = cl.clip_upload(str(video_path), caption=caption, extra_data=extra_data)
-    url = f"https://www.instagram.com/reel/{media.code}/"
 
+    # Log what Instagram returned about the media settings
+    raw = cl.last_json.get("media", {})
+    print(f"\n  [DEBUG] like_count_hidden     : {raw.get('like_count_hidden')}")
+    print(f"  [DEBUG] like_and_view_counts  : {raw.get('like_and_view_counts_disabled')}")
+    print(f"  [DEBUG] can_viewer_reshare    : {raw.get('can_viewer_reshare')}")
+    print(f"  [DEBUG] share_to_facebook     : {raw.get('share_to_facebook')}")
+    print(f"  [DEBUG] fb_like_count_hidden  : {raw.get('fb_like_count_hidden')}")
+    print(f"  [DEBUG] share_to_fb_dest      : {raw.get('share_to_fb_destinations')}")
+    print(f"  [DEBUG] all media keys        : {sorted(raw.keys())}")
+
+    url = f"https://www.instagram.com/reel/{media.code}/"
     print(f"\n  Live: {url}")
     return str(media.pk), url
 
