@@ -386,32 +386,40 @@ def upload_to_instagram(video_path):
     caption = random.choice(CAPTIONS)
     print(f"  Caption: {caption[:50]}...")
 
-    # Try both known field names for hiding likes
+    # like_and_view_counts_disabled confirmed working (API returns true)
     extra_data = {
         "like_count_hidden": 1,
         "like_and_view_counts_disabled": 1,
     }
     if fb_page_id:
         extra_data["share_to_facebook"] = 1
-        # Explicitly pass the FB destination ID as a JSON-encoded list
-        extra_data["share_to_fb_destinations"] = json.dumps([fb_page_id])
+        # Pass as a plain Python list — instagrapi serialises it for the request
+        extra_data["share_to_fb_destinations"] = [fb_page_id]
         print(f"  Cross-posting to FB page: {fb_page_id}")
     else:
         print("  IG_FB_PAGE_ID not set — skipping Facebook cross-post")
 
     print(f"  extra_data being sent: {extra_data}")
     print("  Uploading Reel...")
+
+    # Monkey-patch clip_configure to capture the raw configure response
+    # before expose() overwrites last_json
+    _orig_configure = cl.clip_configure
+    _configure_resp = {}
+    def _patched_configure(*args, **kwargs):
+        result = _orig_configure(*args, **kwargs)
+        _configure_resp.update(cl.last_json)
+        return result
+    cl.clip_configure = _patched_configure
+
     media = cl.clip_upload(str(video_path), caption=caption, extra_data=extra_data)
 
-    # Log what Instagram returned about the media settings
-    raw = cl.last_json.get("media", {})
-    print(f"\n  [DEBUG] like_count_hidden     : {raw.get('like_count_hidden')}")
-    print(f"  [DEBUG] like_and_view_counts  : {raw.get('like_and_view_counts_disabled')}")
-    print(f"  [DEBUG] can_viewer_reshare    : {raw.get('can_viewer_reshare')}")
-    print(f"  [DEBUG] share_to_facebook     : {raw.get('share_to_facebook')}")
-    print(f"  [DEBUG] fb_like_count_hidden  : {raw.get('fb_like_count_hidden')}")
-    print(f"  [DEBUG] share_to_fb_dest      : {raw.get('share_to_fb_destinations')}")
-    print(f"  [DEBUG] all media keys        : {sorted(raw.keys())}")
+    raw = _configure_resp.get("media", {})
+    print(f"\n  [DEBUG] like_and_view_counts_disabled : {raw.get('like_and_view_counts_disabled')}")
+    print(f"  [DEBUG] share_to_facebook             : {raw.get('share_to_facebook')}")
+    print(f"  [DEBUG] share_to_fb_destinations      : {raw.get('share_to_fb_destinations')}")
+    print(f"  [DEBUG] fbid                          : {raw.get('fbid')}")
+    print(f"  [DEBUG] can_viewer_reshare            : {raw.get('can_viewer_reshare')}")
 
     url = f"https://www.instagram.com/reel/{media.code}/"
     print(f"\n  Live: {url}")
