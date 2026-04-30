@@ -66,7 +66,7 @@ jobs:
           IG_USERNAME:            ${{ secrets.IG_USERNAME }}
           IG_PASSWORD:            ${{ secrets.IG_PASSWORD }}
           IG_SESSION_JSON:        ${{ secrets.IG_SESSION_JSON }}
-          IG_FB_PAGE_ID:          "61566733402603"
+          IG_FB_PAGE_ID:          "1097766650082927"
           TELEGRAM_BOT_TOKEN:     ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:       ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_RUN_ID:          ${{ github.run_id }}

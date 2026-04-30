@@ -358,7 +358,7 @@ def upload_to_instagram(video_path):
     username    = os.environ.get("IG_USERNAME", "")
     password    = os.environ.get("IG_PASSWORD", "")
     session_raw = os.environ.get("IG_SESSION_JSON", "")
-    fb_page_id  = os.environ.get("IG_FB_PAGE_ID", "61566733402603")
+    fb_page_id  = os.environ.get("IG_FB_PAGE_ID", "1097766650082927")
 
     if not username or not password:
         raise RuntimeError("IG_USERNAME and IG_PASSWORD env vars required")
@@ -386,40 +386,26 @@ def upload_to_instagram(video_path):
     caption = random.choice(CAPTIONS)
     print(f"  Caption: {caption[:50]}...")
 
-    # like_and_view_counts_disabled confirmed working (API returns true)
+    # Resolve which FB page is actually linked to this Instagram account
+    try:
+        raw_user = cl.private_request("accounts/current_user/?edit=true").get("user", {})
+        linked_page_id = str(raw_user.get("page_id") or fb_page_id)
+    except Exception:
+        linked_page_id = fb_page_id
+
     extra_data = {
         "like_count_hidden": 1,
         "like_and_view_counts_disabled": 1,
     }
-    if fb_page_id:
+    if linked_page_id:
         extra_data["share_to_facebook"] = 1
-        # Pass as a plain Python list — instagrapi serialises it for the request
-        extra_data["share_to_fb_destinations"] = [fb_page_id]
-        print(f"  Cross-posting to FB page: {fb_page_id}")
+        extra_data["share_to_fb_destinations"] = [linked_page_id]
+        print(f"  Cross-posting to FB page: {linked_page_id}")
     else:
-        print("  IG_FB_PAGE_ID not set — skipping Facebook cross-post")
+        print("  No FB page linked — skipping Facebook cross-post")
 
-    print(f"  extra_data being sent: {extra_data}")
     print("  Uploading Reel...")
-
-    # Monkey-patch clip_configure to capture the raw configure response
-    # before expose() overwrites last_json
-    _orig_configure = cl.clip_configure
-    _configure_resp = {}
-    def _patched_configure(*args, **kwargs):
-        result = _orig_configure(*args, **kwargs)
-        _configure_resp.update(cl.last_json)
-        return result
-    cl.clip_configure = _patched_configure
-
     media = cl.clip_upload(str(video_path), caption=caption, extra_data=extra_data)
-
-    raw = _configure_resp.get("media", {})
-    print(f"\n  [DEBUG] like_and_view_counts_disabled : {raw.get('like_and_view_counts_disabled')}")
-    print(f"  [DEBUG] share_to_facebook             : {raw.get('share_to_facebook')}")
-    print(f"  [DEBUG] share_to_fb_destinations      : {raw.get('share_to_fb_destinations')}")
-    print(f"  [DEBUG] fbid                          : {raw.get('fbid')}")
-    print(f"  [DEBUG] can_viewer_reshare            : {raw.get('can_viewer_reshare')}")
 
     url = f"https://www.instagram.com/reel/{media.code}/"
     print(f"\n  Live: {url}")
