@@ -387,13 +387,12 @@ def upload_to_instagram(video_path):
     print(f"  Caption: {caption[:50]}...")
 
     # Resolve which FB page is actually linked to this Instagram account.
-    # page_id from the API is an integer; keep it as int — Instagram's private API
-    # is type-sensitive and silently ignores string values where integers are expected.
+    # Facebook IDs must be transmitted as strings (Meta's own spec — numeric strings).
     try:
         raw_user = cl.private_request("accounts/current_user/?edit=true").get("user", {})
-        linked_page_id = int(raw_user.get("page_id") or fb_page_id)
+        linked_page_id = str(raw_user.get("page_id") or fb_page_id)
     except Exception:
-        linked_page_id = int(fb_page_id)
+        linked_page_id = str(fb_page_id)
 
     extra_data = {
         "like_count_hidden": 1,
