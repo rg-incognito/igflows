@@ -78,3 +78,15 @@ jobs:
         env:
           GDRIVE_FOLDER_ID: "1CivbmOzwqkCmyOZmmC7UC2p6EGDitjCB"
         run: python drive_manager.py upload_state
+
+      - name: Refresh GDRIVE_TOKEN_JSON secret with latest token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -f drive_token.json ] && [ -n "$GH_TOKEN" ]; then
+            gh secret set GDRIVE_TOKEN_JSON < drive_token.json
+            echo "GDRIVE_TOKEN_JSON secret updated with refreshed token"
+          else
+            echo "Skipping secret update (drive_token.json missing or GH_PAT not set)"
+          fi
