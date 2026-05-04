@@ -81,6 +81,7 @@ jobs:
 
       - name: Refresh GDRIVE_TOKEN_JSON secret with latest token
         if: always()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
