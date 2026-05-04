@@ -412,6 +412,50 @@ def upload_to_instagram(video_path):
     print(f"\n  Live: {url}")
     return str(media.pk), url
 
+# ─── FACEBOOK UPLOAD ──────────────────────────────────────────────────────────
+def upload_to_facebook(video_path, caption):
+    page_token = os.environ.get("FB_PAGE_TOKEN", "")
+    page_id    = os.environ.get("IG_FB_PAGE_ID", "1097766650082927")
+    if not page_token:
+        print("  FB_PAGE_TOKEN not set — skipping Facebook post")
+        return None
+
+    api = "https://graph.facebook.com/v19.0"
+
+    # Step 1: start upload session
+    r = requests.post(f"{api}/{page_id}/video_reels",
+                      params={"upload_phase": "start", "access_token": page_token},
+                      timeout=30)
+    r.raise_for_status()
+    data      = r.json()
+    video_id  = data["video_id"]
+    upload_url = data["upload_url"]
+    print(f"  FB upload session: {video_id}")
+
+    # Step 2: upload video bytes
+    file_size = os.path.getsize(video_path)
+    with open(video_path, "rb") as f:
+        up = requests.post(upload_url, headers={
+            "Authorization": f"OAuth {page_token}",
+            "offset":        "0",
+            "file_size":     str(file_size),
+        }, data=f, timeout=120)
+    up.raise_for_status()
+
+    # Step 3: publish
+    r = requests.post(f"{api}/{page_id}/video_reels", params={
+        "upload_phase": "finish",
+        "video_state":  "PUBLISHED",
+        "video_id":     video_id,
+        "description":  caption,
+        "access_token": page_token,
+    }, timeout=30)
+    r.raise_for_status()
+
+    fb_url = f"https://www.facebook.com/reel/{video_id}"
+    print(f"  FB Reel live: {fb_url}")
+    return fb_url
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def run():
     start = time.time()
@@ -559,6 +603,15 @@ def run():
                   durations=durations, media_id=media_id, ig_url=url)
         state = "uploaded"
 
+    # Facebook post (independent — never blocks the IG success)
+    fb_caption = random.choice(CAPTIONS)
+    fb_url = None
+    try:
+        fb_url = upload_to_facebook(output_file, fb_caption)
+    except Exception as e:
+        print(f"  FB post failed (non-fatal): {e}")
+        tg(f"⚠️ FB post failed: {e}")
+
     # ── Done ───────────────────────────────────────────────────────────────────
     tracker["used_videos"].extend(selected_videos)
     used_music = tracker.get("used_music", [])
@@ -580,12 +633,14 @@ def run():
     elapsed = time.time() - start
     summary = (
         f"*IG Reel posted!*\n"
-        f"URL: {url}\n"
+        f"IG: {url}\n"
         f"Music: {track_info['title'][:50]}\n"
         f"Posts today: {len(posts_today)+1}/6\n"
         f"Total: {tracker['total_posts']}\n"
         f"Time: {elapsed:.0f}s"
     )
+    if fb_url:
+        summary += f"\nFB: {fb_url}"
     if sheet_url:
         summary += f"\n[Sheet]({sheet_url})"
     tg(summary)
