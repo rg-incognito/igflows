@@ -472,6 +472,56 @@ def upload_to_instagram(video_path):
     return str(media.pk), url
 
 
+# ─── FACEBOOK UPLOAD ──────────────────────────────────────────────────────────
+def upload_to_facebook(video_path, caption):
+    page_token = os.environ.get("FB_PAGE_TOKEN", "")
+    page_id    = os.environ.get("IG_FB_PAGE_ID", "1097766650082927")
+    if not page_token:
+        print("  FB_PAGE_TOKEN not set — skipping Facebook post")
+        return None
+
+    api = "https://graph.facebook.com/v19.0"
+
+    # Step 1: start upload session
+    r = requests.post(f"{api}/{page_id}/video_reels",
+                      params={"upload_phase": "start", "access_token": page_token},
+                      timeout=30)
+    r.raise_for_status()
+    data       = r.json()
+    video_id   = data["video_id"]
+    upload_url = data["upload_url"]
+    print(f"  FB upload session: {video_id}")
+
+    # Step 2: upload video bytes
+    file_size = os.path.getsize(video_path)
+    with open(video_path, "rb") as f:
+        up = requests.post(upload_url, headers={
+            "Authorization": f"OAuth {page_token}",
+            "offset":        "0",
+            "file_size":     str(file_size),
+        }, data=f, timeout=120)
+    up.raise_for_status()
+    print(f"  FB video bytes uploaded")
+
+    # Step 3: publish — Facebook sometimes returns 500 but still publishes,
+    # so treat 5xx as a warning rather than a fatal error.
+    r = requests.post(f"{api}/{page_id}/video_reels", params={
+        "upload_phase": "finish",
+        "video_state":  "PUBLISHED",
+        "video_id":     video_id,
+        "description":  caption,
+        "access_token": page_token,
+    }, timeout=30)
+    if r.status_code >= 500:
+        print(f"  FB finish returned {r.status_code} (non-fatal — video likely published anyway)")
+    else:
+        r.raise_for_status()
+
+    fb_url = f"https://www.facebook.com/reel/{video_id}"
+    print(f"  FB Reel: {fb_url}")
+    return fb_url
+
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def run():
     start = time.time()
@@ -619,6 +669,15 @@ def run():
                   durations=durations, media_id=media_id, ig_url=url)
         state = "uploaded"
 
+    # Facebook post — uses Graph API directly (native crosspost unreliable via private API)
+    fb_caption = random.choice(CAPTIONS)
+    fb_url = None
+    try:
+        fb_url = upload_to_facebook(output_file, fb_caption)
+    except Exception as e:
+        print(f"  FB post failed (non-fatal): {e}")
+        tg(f"⚠️ FB post failed: {e}")
+
     # ── Done ───────────────────────────────────────────────────────────────────
     tracker["used_videos"].extend(selected_videos)
     used_music = tracker.get("used_music", [])
@@ -646,6 +705,8 @@ def run():
         f"Total: {tracker['total_posts']}\n"
         f"Time: {elapsed:.0f}s"
     )
+    if fb_url:
+        summary += f"\nFB: {fb_url}"
     if sheet_url:
         summary += f"\n[Sheet]({sheet_url})"
     tg(summary)
