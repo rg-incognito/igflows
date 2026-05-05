@@ -368,6 +368,9 @@ def _resolve_fb_page_id(cl, fallback_id):
             print(f"  [FB-DEBUG] FB-related fields: {fb_fields}")
         else:
             print(f"  [FB-DEBUG] No page/fb fields found in current_user response")
+        print(f"  [FB-DEBUG] num_of_admined_pages={raw_user.get('num_of_admined_pages')}  "
+              f"page_id={raw_user.get('page_id')}  page_name={raw_user.get('page_name')}  "
+              f"can_crosspost_without_fb_token={raw_user.get('can_crosspost_without_fb_token')}")
         pid = (raw_user.get("page_id")
                or raw_user.get("fbid_v2")
                or raw_user.get("fb_page_id"))
@@ -445,10 +448,12 @@ def upload_to_instagram(video_path):
         "like_and_view_counts_disabled": 1,
     }
     if linked_page_id:
-        # share_to_fb_destinations must be a JSON-encoded array string (Meta private API quirk)
-        extra_data["share_to_facebook"] = "1"
+        # share_to_fb_destinations must be a Python list — instagrapi JSON-encodes
+        # the whole dict, so passing json.dumps() here would double-encode it into
+        # a string-inside-a-string and Instagram would ignore it.
+        extra_data["share_to_facebook"] = 1
         extra_data["share_to_feed"] = "1"
-        extra_data["share_to_fb_destinations"] = json.dumps([linked_page_id])
+        extra_data["share_to_fb_destinations"] = [linked_page_id]
         print(f"  Attempting crosspost to FB page: {linked_page_id}")
         print(f"  [FB-DEBUG] extra_data being sent: {extra_data}")
     else:
