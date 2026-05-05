@@ -351,6 +351,62 @@ CAPTIONS = [
     "Two wheels one soul\n\n#BikeLife #MotoLife #Reels #BikeReels #Motorcycle #Rider #Viral",
 ]
 
+def _resolve_fb_page_id(cl, fallback_id):
+    """
+    Try multiple Instagram private API endpoints to find the Facebook Page ID
+    linked to this account. Prints full debug info for diagnosis.
+    Returns the page ID as a string, or None if not found.
+    """
+    # Attempt 1: current_user — most common source of page_id
+    try:
+        raw_user = cl.private_request("accounts/current_user/?edit=true").get("user", {})
+        print(f"  [FB-DEBUG] current_user keys: {sorted(raw_user.keys())}")
+        # Print every field that mentions page/facebook/fb
+        fb_fields = {k: v for k, v in raw_user.items()
+                     if any(x in k.lower() for x in ("page", "fb", "facebook"))}
+        if fb_fields:
+            print(f"  [FB-DEBUG] FB-related fields: {fb_fields}")
+        else:
+            print(f"  [FB-DEBUG] No page/fb fields found in current_user response")
+        pid = (raw_user.get("page_id")
+               or raw_user.get("fbid_v2")
+               or raw_user.get("fb_page_id"))
+        if pid and str(pid) != "0":
+            print(f"  [FB-DEBUG] page_id resolved from current_user: {pid}")
+            return str(pid)
+    except Exception as e:
+        print(f"  [FB-DEBUG] current_user request failed: {e}")
+
+    # Attempt 2: fb_ov/linked_accounts — returns linked FB accounts/pages
+    try:
+        resp = cl.private_request("fb_ov/linked_accounts/")
+        print(f"  [FB-DEBUG] linked_accounts response: {resp}")
+        for acc in resp.get("accounts", []):
+            acc_type = str(acc.get("type", "") or acc.get("account_type", "")).upper()
+            if "PAGE" in acc_type or "FACEBOOK" in acc_type:
+                pid = acc.get("id") or acc.get("page_id")
+                if pid:
+                    print(f"  [FB-DEBUG] page_id from linked_accounts: {pid}")
+                    return str(pid)
+    except Exception as e:
+        print(f"  [FB-DEBUG] linked_accounts request failed: {e}")
+
+    # Attempt 3: direct_v2/accounts/linked_accounts
+    try:
+        resp = cl.private_request("direct_v2/accounts/linked_accounts/")
+        print(f"  [FB-DEBUG] direct linked_accounts response: {resp}")
+    except Exception as e:
+        print(f"  [FB-DEBUG] direct linked_accounts request failed: {e}")
+
+    # Fallback: env var / hardcoded
+    if fallback_id and str(fallback_id) != "0":
+        print(f"  [FB-DEBUG] Using fallback page_id from env/hardcoded: {fallback_id}")
+        return str(fallback_id)
+
+    print(f"  [FB-DEBUG] Could not resolve any FB page ID — crosspost will be skipped")
+    return None
+
+
 def upload_to_instagram(video_path):
     import logging
     from instagrapi import Client
@@ -364,13 +420,11 @@ def upload_to_instagram(video_path):
         raise RuntimeError("IG_USERNAME and IG_PASSWORD env vars required")
 
     cl = Client()
-    # Log every private API request body so we can see exactly what's sent
     cl.logger.setLevel(logging.DEBUG)
     handler = logging.StreamHandler()
     handler.setLevel(logging.DEBUG)
     cl.logger.addHandler(handler)
 
-    # Load saved session to avoid triggering 2FA on every run
     session_file = Path("ig_session.json")
     if session_raw:
         session_file.write_text(session_raw)
@@ -379,34 +433,39 @@ def upload_to_instagram(video_path):
         print("  Loaded saved IG session")
 
     cl.login(username, password)
-
-    # Persist updated session to Drive state so it survives across runs
     cl.dump_settings(str(session_file))
 
     caption = random.choice(CAPTIONS)
     print(f"  Caption: {caption[:50]}...")
 
-    # Resolve which FB page is actually linked to this Instagram account.
-    # Facebook IDs must be transmitted as strings (Meta's own spec — numeric strings).
-    try:
-        raw_user = cl.private_request("accounts/current_user/?edit=true").get("user", {})
-        linked_page_id = str(raw_user.get("page_id") or fb_page_id)
-    except Exception:
-        linked_page_id = str(fb_page_id)
+    linked_page_id = _resolve_fb_page_id(cl, fb_page_id)
 
     extra_data = {
         "like_count_hidden": 1,
         "like_and_view_counts_disabled": 1,
     }
     if linked_page_id:
-        extra_data["share_to_facebook"] = 1
-        extra_data["share_to_fb_destinations"] = [linked_page_id]
-        print(f"  Cross-posting to FB page: {linked_page_id}")
+        # share_to_fb_destinations must be a JSON-encoded array string (Meta private API quirk)
+        extra_data["share_to_facebook"] = "1"
+        extra_data["share_to_feed"] = "1"
+        extra_data["share_to_fb_destinations"] = json.dumps([linked_page_id])
+        print(f"  Attempting crosspost to FB page: {linked_page_id}")
+        print(f"  [FB-DEBUG] extra_data being sent: {extra_data}")
     else:
         print("  No FB page linked — skipping Facebook cross-post")
 
     print("  Uploading Reel...")
     media = cl.clip_upload(str(video_path), caption=caption, extra_data=extra_data)
+
+    # Post-upload: check if crosspost succeeded
+    print(f"  [FB-DEBUG] Upload response — pk={media.pk}  code={media.code}")
+    try:
+        info = cl.media_info(media.pk).dict()
+        crosspost_keys = {k: v for k, v in info.items()
+                         if any(x in str(k).lower() for x in ("cross", "fb", "facebook", "page"))}
+        print(f"  [FB-DEBUG] Crosspost-related fields in media_info: {crosspost_keys}")
+    except Exception as e:
+        print(f"  [FB-DEBUG] media_info check failed: {e}")
 
     url = f"https://www.instagram.com/reel/{media.code}/"
     print(f"\n  Live: {url}")
