@@ -584,7 +584,12 @@ def upload_to_youtube(video_path, track_info):
                          "YouTubeShorts", "BikeReels", "TwoWheels"],
                 "categoryId": "2",
             },
-            "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
+            "status": {
+                "privacyStatus":        "public",
+                "selfDeclaredMadeForKids": False,
+                "publicStatsViewable":  False,
+                "notifySubscribers":    False,
+            },
         },
         media_body=media,
     )
