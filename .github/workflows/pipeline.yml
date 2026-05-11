@@ -2,13 +2,14 @@ name: Bike IG Reels Pipeline
 
 on:
   schedule:
-    # 6x per day — IST times (UTC+5:30)
-    - cron: '0 2 * * *'    # 7:30 AM IST
-    - cron: '0 5 * * *'    # 10:30 AM IST
-    - cron: '0 8 * * *'    # 1:30 PM IST
-    - cron: '0 11 * * *'   # 4:30 PM IST
-    - cron: '0 14 * * *'   # 7:30 PM IST
-    - cron: '0 17 * * *'   # 10:30 PM IST
+    # 6x per day — optimised for US peak hours (EST = UTC-5, PST = UTC-8)
+    # Also hits UK/EU afternoon-evening window (UTC+0/+1)
+    - cron: '0 11 * * *'   #  6:00 AM EST /  3:00 AM PST / 11:00 AM UK
+    - cron: '0 14 * * *'   #  9:00 AM EST /  6:00 AM PST /  2:00 PM UK
+    - cron: '0 17 * * *'   # 12:00 PM EST /  9:00 AM PST /  5:00 PM UK  ← lunch peak
+    - cron: '0 20 * * *'   #  3:00 PM EST / 12:00 PM PST /  8:00 PM UK  ← both coasts + EU evening
+    - cron: '0 23 * * *'   #  6:00 PM EST /  3:00 PM PST / 11:00 PM UK  ← after-work peak
+    - cron: '0 2 * * *'    #  9:00 PM EST /  6:00 PM PST /  2:00 AM UK  ← prime time US
 
   workflow_dispatch:
     inputs:
