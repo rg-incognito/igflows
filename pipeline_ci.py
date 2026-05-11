@@ -544,7 +544,7 @@ def get_youtube_service():
     return build("youtube", "v3", credentials=creds)
 
 
-def upload_to_youtube(video_path, track_info):
+def upload_to_youtube(video_path, track_info, notify=False):
     from googleapiclient.http import MediaFileUpload
 
     if not Path("yt_token.json").exists():
@@ -552,6 +552,7 @@ def upload_to_youtube(video_path, track_info):
         return None, None
 
     youtube = get_youtube_service()
+    print(f"  Notify subscribers: {notify}")
 
     titles = [
         "Bike Life || Pure Adrenaline #Shorts #BikeLife",
@@ -588,7 +589,7 @@ def upload_to_youtube(video_path, track_info):
                 "privacyStatus":        "public",
                 "selfDeclaredMadeForKids": False,
                 "publicStatsViewable":  False,
-                "notifySubscribers":    False,
+                "notifySubscribers":    notify,
             },
         },
         media_body=media,
@@ -765,10 +766,12 @@ def run():
         tg(f"⚠️ FB post failed: {e}")
 
     # YouTube upload — same reel pushed as a Short
+    # Notify subscribers only on the last post of the day
+    is_last_post = (len(posts_today) + 1) >= POSTS_PER_DAY
     yt_url = None
     try:
         print("\n[+] Uploading to YouTube...")
-        _, yt_url = upload_to_youtube(output_file, track_info)
+        _, yt_url = upload_to_youtube(output_file, track_info, notify=is_last_post)
     except Exception as e:
         print(f"  YT post failed (non-fatal): {e}")
         tg(f"⚠️ YT post failed: {e}")
