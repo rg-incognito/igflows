@@ -200,7 +200,7 @@ def get_trending_music(tracker, force_track_id=None):
     artist = meta["artist"] if meta else "Drive"
     vibe   = meta["vibe"]   if meta else ""
     print(f"  Music [{pool_label}]: {title} — {artist} {vibe}")
-    return {"id": track_name, "title": title, "artist": artist}, audio_file
+    return {"id": track_name, "title": title, "artist": artist, "vibe": vibe}, audio_file
 
 # ─── VIDEO PROCESSING ─────────────────────────────────────────────────────────
 def get_duration(media_path):
@@ -342,14 +342,85 @@ def encode_final(merged_path, audio_file, video_duration, output_path):
     return final_dur
 
 # ─── INSTAGRAM UPLOAD ─────────────────────────────────────────────────────────
-CAPTIONS = [
-    "Bike life at its finest\n\n#BikeLife #Motorcycle #Reels #MotoVlog #BikeReels #Rider #TwoWheels",
-    "Living for the ride\n\n#BikeLife #MotoLife #Reels #Rider #BikeLovers #Motorcycle #BikeReels",
-    "Born to ride\n\n#BikeLife #Reels #Motorcycle #MotoVlog #BikeReels #TwoWheels #RideOrDie",
-    "The road never lies\n\n#BikeLife #Rider #MotoLife #Reels #BikeLovers #Motorcycle #Viral",
-    "Speed is life\n\n#BikeLife #Reels #MotoVlog #Motorcycle #BikeReels #Rider #TwoWheels",
-    "Two wheels one soul\n\n#BikeLife #MotoLife #Reels #BikeReels #Motorcycle #Rider #Viral",
+CAPTION_HOOKS = [
+    "POV: when the road calls 🏍️",
+    "That feeling when throttle meets open road",
+    "No traffic. No limits. Just vibes 🛣️",
+    "Life is better on two wheels",
+    "Not all who wander are lost — some just ride",
+    "The road is therapy 🏍️",
+    "One gear, full send",
+    "Ride like no one's watching",
+    "Built for the road. Born to ride.",
+    "Every ride tells a story",
+    "When the engine roars, nothing else matters",
+    "Two wheels, one soul, endless roads",
+    "Speed is the feeling you can't fake",
+    "Not a destination — a lifestyle",
+    "Throttle up, problems down",
+    "Roads were made for journeys 🛣️",
+    "No bad days on two wheels",
+    "The best views come from the saddle",
+    "Chase the horizon, not the clock",
+    "Born to be wild, raised on asphalt",
 ]
+
+TAG_BANK = {
+    # Always pick 5 of these — community core
+    "core": [
+        "BikeLife", "Motorcycle", "MotoVlog", "BikeReels", "TwoWheels",
+        "RideOrDie", "BikeLovers", "MotoLife", "BikerLife", "BikeRiding",
+        "MotorcycleLovers", "MotoFamily", "BikeAddicts", "BikerCommunity",
+    ],
+    # Pick 3 — bike type/brand (specificity = reach in niche)
+    "style": [
+        "SportBike", "Superbike", "StreetBike", "NakedBike", "BikeStunts",
+        "SuperMoto", "CafeRacer", "AdventureRide", "MotoGP", "Scrambler",
+        "KTM", "Kawasaki", "Yamaha", "Honda", "Ducati", "BMW", "Triumph",
+    ],
+    # Pick 3 — format cues (algorithm-friendly)
+    "format": [
+        "POV", "Satisfying", "Cinematic", "SlowMo", "BikeEdit",
+        "MotorcycleEdit", "GoPro", "OnboardCamera", "SatisfyingVideos",
+        "ViralReels", "Reels", "RideWith",
+    ],
+    # Pick 3 — discovery & trending
+    "viral": [
+        "Viral", "Trending", "Fyp", "ExploreMore", "ReelsViral",
+        "Explore", "InstaReels", "ViralVideo", "ReelItFeelIt", "Trending2026",
+        "ForYou", "ReelsTrending",
+    ],
+    # Pick 3 — matched to music vibe emoji prefix
+    "vibe": {
+        "🔥": ["Adrenaline", "SpeedAddict", "FastBike", "RacingLife", "TrackDay", "FullSend", "NoLimits"],
+        "😎": ["SwagLife", "BikeSwag", "RiderLife", "StyleOnWheels", "MotoSwag", "Drip", "FreshRide"],
+        "🌅": ["SunsetRide", "MorningRide", "GoldenHour", "VibeRide", "CinematicRide", "ScenicRide"],
+        "⚡": ["NightRide", "CityRide", "NeonRide", "UrbanBike", "CityMoto", "NightVibes", "EDMRide"],
+        "🎸": ["ClassicBike", "VintageMoto", "BikeRock", "RoadWarrior", "OldSchool", "ClassicMoto"],
+    },
+}
+
+
+def generate_caption_and_tags(track_info):
+    """Return (caption_str, tag_list) — unique each run, tied to music vibe."""
+    hook = random.choice(CAPTION_HOOKS)
+
+    vibe = track_info.get("vibe", "") or ""
+    vibe_key = next((k for k in TAG_BANK["vibe"] if vibe.startswith(k)), "🔥")
+
+    core_tags   = random.sample(TAG_BANK["core"],          5)
+    style_tags  = random.sample(TAG_BANK["style"],         3)
+    format_tags = random.sample(TAG_BANK["format"],        3)
+    viral_tags  = random.sample(TAG_BANK["viral"],         3)
+    vibe_tags   = random.sample(TAG_BANK["vibe"][vibe_key], 3)
+
+    all_tags = core_tags + style_tags + format_tags + viral_tags + vibe_tags
+    random.shuffle(all_tags)
+    all_tags = list(dict.fromkeys(all_tags))[:20]   # deduplicate, IG sweet-spot cap
+
+    hashtags = " ".join(f"#{t}" for t in all_tags)
+    caption  = f"{hook}\n\n{hashtags}"
+    return caption, all_tags
 
 def _resolve_fb_page_id(cl, fallback_id):
     """
@@ -410,7 +481,7 @@ def _resolve_fb_page_id(cl, fallback_id):
     return None
 
 
-def upload_to_instagram(video_path):
+def upload_to_instagram(video_path, track_info):
     import logging
     from instagrapi import Client
 
@@ -438,8 +509,9 @@ def upload_to_instagram(video_path):
     cl.login(username, password)
     cl.dump_settings(str(session_file))
 
-    caption = random.choice(CAPTIONS)
-    print(f"  Caption: {caption[:50]}...")
+    caption, tags = generate_caption_and_tags(track_info)
+    print(f"  Caption: {caption[:60]}...")
+    print(f"  Tags ({len(tags)}): {' '.join('#'+t for t in tags[:8])}...")
 
     linked_page_id = _resolve_fb_page_id(cl, fb_page_id)
 
@@ -554,7 +626,7 @@ def upload_to_youtube(video_path, track_info, notify=False):
     youtube = get_youtube_service()
     print(f"  Notify subscribers: {notify}")
 
-    titles = [
+    yt_titles = [
         "Bike Life || Pure Adrenaline #Shorts #BikeLife",
         "Ride or Die Moments #Shorts #Motorcycle",
         "When the Road Calls #Shorts #BikeLife",
@@ -563,9 +635,18 @@ def upload_to_youtube(video_path, track_info, notify=False):
         "Living for the Ride #Shorts #Motorcycle",
         "Speed is Everything #Shorts #BikeLife",
         "The Road Never Lies #Shorts #MotoLife",
+        "POV: Throttle Life #Shorts #BikeLife",
+        "No Limits on Two Wheels #Shorts #Motorcycle",
+        "Satisfying Bike Moments #Shorts #MotoVlog",
+        "Full Send #Shorts #BikeLife #Adrenaline",
     ]
-    title = random.choice(titles)
+    title = random.choice(yt_titles)
     print(f"  Title: {title}")
+
+    # Reuse tag bank — YouTube tags are metadata, no # prefix
+    _, cap_tags = generate_caption_and_tags(track_info)
+    yt_tags = cap_tags[:15] + ["Shorts", "YouTubeShorts", "YouTubeShorts2026"]
+    yt_hashtags = " ".join(f"#{t}" for t in cap_tags[:8]) + " #Shorts #YouTubeShorts"
 
     file_size = Path(video_path).stat().st_size
     media = MediaFileUpload(str(video_path), mimetype="video/mp4",
@@ -578,11 +659,9 @@ def upload_to_youtube(video_path, track_info, notify=False):
                 "description": (
                     f"Bike life at its best!\n\n"
                     f"Music: {track_info['title']} by {track_info['artist']}\n\n"
-                    f"#Shorts #BikeLife #Motorcycle #MotoVlog #RideOrDie "
-                    f"#BikeLovers #TwoWheels #YouTubeShorts"
+                    f"{yt_hashtags}"
                 ),
-                "tags": ["BikeLife", "Motorcycle", "Shorts", "MotoVlog",
-                         "YouTubeShorts", "BikeReels", "TwoWheels"],
+                "tags": yt_tags,
                 "categoryId": "2",
             },
             "status": {
@@ -680,6 +759,7 @@ def run():
             "id": cp["track_id"],
             "title": cp.get("track_title", cp["track_id"]),
             "artist": _meta["artist"] if _meta else "Drive",
+            "vibe": _meta["vibe"] if _meta else "",
         }
 
     durations = cp.get("durations", {})
@@ -749,7 +829,7 @@ def run():
         url = cp.get("ig_url", f"https://www.instagram.com/reel/{media_id}/")
         print(f"  Already uploaded: {url}")
     else:
-        media_id, url = upload_to_instagram(output_file)
+        media_id, url = upload_to_instagram(output_file, track_info)
         ckpt.save("uploaded", selected_videos=selected_videos,
                   track_id=cp["track_id"], track_title=cp.get("track_title", ""),
                   audio_file=str(audio_file), output_file=output_path,
@@ -757,7 +837,7 @@ def run():
         state = "uploaded"
 
     # Facebook post — uses Graph API directly (native crosspost unreliable via private API)
-    fb_caption = random.choice(CAPTIONS)
+    fb_caption, _ = generate_caption_and_tags(track_info)
     fb_url = None
     try:
         fb_url = upload_to_facebook(output_file, fb_caption)
