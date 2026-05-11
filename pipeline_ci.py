@@ -527,6 +527,82 @@ def upload_to_facebook(video_path, caption):
     return fb_url
 
 
+# ─── YOUTUBE UPLOAD ───────────────────────────────────────────────────────────
+def get_youtube_service():
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+
+    creds = Credentials.from_authorized_user_file(
+        "yt_token.json", ["https://www.googleapis.com/auth/youtube.upload"]
+    )
+    if creds.expired and creds.refresh_token:
+        print("  Refreshing YouTube token...")
+        creds.refresh(Request())
+        with open("yt_token.json", "w") as f:
+            f.write(creds.to_json())
+    return build("youtube", "v3", credentials=creds)
+
+
+def upload_to_youtube(video_path, track_info):
+    from googleapiclient.http import MediaFileUpload
+
+    if not Path("yt_token.json").exists():
+        print("  yt_token.json not found — skipping YouTube upload")
+        return None, None
+
+    youtube = get_youtube_service()
+
+    titles = [
+        "Bike Life || Pure Adrenaline #Shorts #BikeLife",
+        "Ride or Die Moments #Shorts #Motorcycle",
+        "When the Road Calls #Shorts #BikeLife",
+        "Two Wheels One Soul #Shorts #MotoLife",
+        "Born to Ride #Shorts #BikeLovers",
+        "Living for the Ride #Shorts #Motorcycle",
+        "Speed is Everything #Shorts #BikeLife",
+        "The Road Never Lies #Shorts #MotoLife",
+    ]
+    title = random.choice(titles)
+    print(f"  Title: {title}")
+
+    file_size = Path(video_path).stat().st_size
+    media = MediaFileUpload(str(video_path), mimetype="video/mp4",
+                            resumable=True, chunksize=512*1024)
+    request = youtube.videos().insert(
+        part="snippet,status",
+        body={
+            "snippet": {
+                "title": title,
+                "description": (
+                    f"Bike life at its best!\n\n"
+                    f"Music: {track_info['title']} by {track_info['artist']}\n\n"
+                    f"#Shorts #BikeLife #Motorcycle #MotoVlog #RideOrDie "
+                    f"#BikeLovers #TwoWheels #YouTubeShorts"
+                ),
+                "tags": ["BikeLife", "Motorcycle", "Shorts", "MotoVlog",
+                         "YouTubeShorts", "BikeReels", "TwoWheels"],
+                "categoryId": "2",
+            },
+            "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False},
+        },
+        media_body=media,
+    )
+
+    response = None
+    while response is None:
+        status, response = request.next_chunk()
+        if status:
+            pct = status.resumable_progress / file_size * 100
+            progress_bar("Uploading to YouTube", pct)
+    progress_done("Uploading to YouTube")
+
+    video_id = response["id"]
+    url = f"https://www.youtube.com/shorts/{video_id}"
+    print(f"\n  Live: {url}")
+    return video_id, url
+
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def run():
     start = time.time()
@@ -683,6 +759,15 @@ def run():
         print(f"  FB post failed (non-fatal): {e}")
         tg(f"⚠️ FB post failed: {e}")
 
+    # YouTube upload — same reel pushed as a Short
+    yt_url = None
+    try:
+        print("\n[+] Uploading to YouTube...")
+        _, yt_url = upload_to_youtube(output_file, track_info)
+    except Exception as e:
+        print(f"  YT post failed (non-fatal): {e}")
+        tg(f"⚠️ YT post failed: {e}")
+
     # ── Done ───────────────────────────────────────────────────────────────────
     tracker["used_videos"].extend(selected_videos)
     used_music = tracker.get("used_music", [])
@@ -712,6 +797,8 @@ def run():
     )
     if fb_url:
         summary += f"\nFB: {fb_url}"
+    if yt_url:
+        summary += f"\nYT: {yt_url}"
     if sheet_url:
         summary += f"\n[Sheet]({sheet_url})"
     tg(summary)
