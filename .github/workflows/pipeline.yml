@@ -97,3 +97,16 @@ jobs:
           else
             echo "Skipping secret update (drive_token.json missing or GH_PAT not set)"
           fi
+
+      - name: Refresh IG_SESSION_JSON secret with latest session
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -f ig_session.json ] && [ -n "$GH_TOKEN" ]; then
+            gh secret set IG_SESSION_JSON --repo rg-incognito/igflows < ig_session.json
+            echo "IG_SESSION_JSON secret updated with fresh session"
+          else
+            echo "Skipping (ig_session.json missing or GH_PAT not set)"
+          fi

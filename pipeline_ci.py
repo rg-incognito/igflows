@@ -500,7 +500,9 @@ def upload_to_instagram(video_path, track_info):
     cl.logger.addHandler(handler)
 
     session_file = Path("ig_session.json")
-    if session_raw:
+    # Only fall back to the (potentially stale) secret if Drive didn't already
+    # download a fresh ig_session.json in the download_state step.
+    if not session_file.exists() and session_raw:
         session_file.write_text(session_raw)
     if session_file.exists():
         cl.load_settings(str(session_file))
