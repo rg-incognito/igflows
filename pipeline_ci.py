@@ -427,23 +427,6 @@ IG_USER_ID = "17841444241769784"
 GRAPH_API  = "https://graph.facebook.com/v19.0"
 
 
-def _host_video(video_path):
-    """Upload video to transfer.sh and return a public HTTPS URL."""
-    filename = Path(video_path).name
-    print(f"  Hosting video on transfer.sh...")
-    with open(video_path, "rb") as f:
-        r = requests.put(
-            f"https://transfer.sh/{filename}",
-            data=f,
-            headers={"Max-Days": "1"},
-            timeout=180,
-        )
-    r.raise_for_status()
-    url = r.text.strip()
-    print(f"  Hosted: {url}")
-    return url
-
-
 def upload_to_instagram(video_path, track_info):
     token = os.environ.get("FB_PAGE_TOKEN", "")
     if not token:
@@ -453,7 +436,8 @@ def upload_to_instagram(video_path, track_info):
     print(f"  Caption: {caption[:60]}...")
     print(f"  Tags ({len(tags)}): {' '.join('#'+t for t in tags[:8])}...")
 
-    video_url = _host_video(video_path)
+    print("  Hosting video on Google Drive (temp public)...")
+    video_url, temp_drive_id = drive.upload_public_temp(video_path)
 
     # Step 1: create media container
     print("  Creating IG media container...")
@@ -496,6 +480,8 @@ def upload_to_instagram(video_path, track_info):
     if not r.ok:
         raise RuntimeError(f"IG publish failed: {r.status_code} {r.text}")
     media_id = r.json()["id"]
+
+    drive.delete_file(temp_drive_id)
 
     url = f"https://www.instagram.com/reel/{media_id}/"
     print(f"\n  Live: {url}")

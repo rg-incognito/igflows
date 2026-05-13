@@ -179,6 +179,30 @@ def download_videos(video_names):
             raise FileNotFoundError(f"Video not found in Drive: {name}")
         download_file(service, fid, dest)
 
+def upload_public_temp(local_path):
+    """Upload a file to Drive, make it world-readable, return direct download URL and file ID."""
+    service = get_service()
+    local_path = Path(local_path)
+    meta  = {"name": local_path.name, "parents": [FOLDER_ID]}
+    media = MediaFileUpload(str(local_path), mimetype="video/mp4", resumable=True)
+    f = service.files().create(body=meta, media_body=media, fields="id").execute()
+    file_id = f["id"]
+    service.permissions().create(
+        fileId=file_id,
+        body={"type": "anyone", "role": "reader"},
+    ).execute()
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    print(f"  Hosted on Drive (public): {url}")
+    return url, file_id
+
+def delete_file(file_id):
+    """Permanently delete a Drive file by ID."""
+    try:
+        get_service().files().delete(fileId=file_id).execute()
+        print(f"  Deleted temp Drive file: {file_id}")
+    except Exception as e:
+        print(f"  Could not delete Drive file {file_id}: {e}")
+
 def list_videos():
     service = get_service()
     files = list_folder(service, FOLDER_ID, name_filter=".mp4")
