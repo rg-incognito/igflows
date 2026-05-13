@@ -60,6 +60,13 @@ jobs:
           echo "$YT_TOKEN_JSON"     > yt_token.json
           # ig_session.json is written by the pipeline itself from IG_SESSION_JSON env var
 
+      - name: Random delay (anti-automation detection)
+        if: github.event_name == 'schedule'
+        run: |
+          DELAY=$((RANDOM % 1800))
+          echo "Sleeping ${DELAY}s (up to 30 min random offset)..."
+          sleep $DELAY
+
       - name: Download state from Google Drive
         env:
           GDRIVE_FOLDER_ID: "1CivbmOzwqkCmyOZmmC7UC2p6EGDitjCB"
