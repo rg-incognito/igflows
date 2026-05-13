@@ -68,11 +68,8 @@ jobs:
       - name: Run pipeline
         env:
           GDRIVE_FOLDER_ID:       "1CivbmOzwqkCmyOZmmC7UC2p6EGDitjCB"
-          IG_USERNAME:            ${{ secrets.IG_USERNAME }}
-          IG_PASSWORD:            ${{ secrets.IG_PASSWORD }}
-          IG_SESSION_JSON:        ${{ secrets.IG_SESSION_JSON }}
-          IG_FB_PAGE_ID:          "1097766650082927"
           FB_PAGE_TOKEN:          ${{ secrets.FB_PAGE_TOKEN }}
+          IG_FB_PAGE_ID:          "1097766650082927"
           TELEGRAM_BOT_TOKEN:     ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:       ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_RUN_ID:          ${{ github.run_id }}
@@ -98,15 +95,3 @@ jobs:
             echo "Skipping secret update (drive_token.json missing or GH_PAT not set)"
           fi
 
-      - name: Refresh IG_SESSION_JSON secret with latest session
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          if [ -f ig_session.json ] && [ -n "$GH_TOKEN" ]; then
-            gh secret set IG_SESSION_JSON --repo rg-incognito/igflows < ig_session.json
-            echo "IG_SESSION_JSON secret updated with fresh session"
-          else
-            echo "Skipping (ig_session.json missing or GH_PAT not set)"
-          fi

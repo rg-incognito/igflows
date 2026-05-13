@@ -422,133 +422,84 @@ def generate_caption_and_tags(track_info):
     caption  = f"{hook}\n\n{hashtags}"
     return caption, all_tags
 
-def _resolve_fb_page_id(cl, fallback_id):
-    """
-    Try multiple Instagram private API endpoints to find the Facebook Page ID
-    linked to this account. Prints full debug info for diagnosis.
-    Returns the page ID as a string, or None if not found.
-    """
-    # Attempt 1: current_user — most common source of page_id
-    try:
-        raw_user = cl.private_request("accounts/current_user/?edit=true").get("user", {})
-        print(f"  [FB-DEBUG] current_user keys: {sorted(raw_user.keys())}")
-        # Print every field that mentions page/facebook/fb
-        fb_fields = {k: v for k, v in raw_user.items()
-                     if any(x in k.lower() for x in ("page", "fb", "facebook"))}
-        if fb_fields:
-            print(f"  [FB-DEBUG] FB-related fields: {fb_fields}")
-        else:
-            print(f"  [FB-DEBUG] No page/fb fields found in current_user response")
-        print(f"  [FB-DEBUG] num_of_admined_pages={raw_user.get('num_of_admined_pages')}  "
-              f"page_id={raw_user.get('page_id')}  page_name={raw_user.get('page_name')}  "
-              f"can_crosspost_without_fb_token={raw_user.get('can_crosspost_without_fb_token')}")
-        pid = (raw_user.get("page_id")
-               or raw_user.get("fbid_v2")
-               or raw_user.get("fb_page_id"))
-        if pid and str(pid) != "0":
-            print(f"  [FB-DEBUG] page_id resolved from current_user: {pid}")
-            return str(pid)
-    except Exception as e:
-        print(f"  [FB-DEBUG] current_user request failed: {e}")
 
-    # Attempt 2: fb_ov/linked_accounts — returns linked FB accounts/pages
-    try:
-        resp = cl.private_request("fb_ov/linked_accounts/")
-        print(f"  [FB-DEBUG] linked_accounts response: {resp}")
-        for acc in resp.get("accounts", []):
-            acc_type = str(acc.get("type", "") or acc.get("account_type", "")).upper()
-            if "PAGE" in acc_type or "FACEBOOK" in acc_type:
-                pid = acc.get("id") or acc.get("page_id")
-                if pid:
-                    print(f"  [FB-DEBUG] page_id from linked_accounts: {pid}")
-                    return str(pid)
-    except Exception as e:
-        print(f"  [FB-DEBUG] linked_accounts request failed: {e}")
+IG_USER_ID = "17841444241769784"
+GRAPH_API  = "https://graph.facebook.com/v19.0"
 
-    # Attempt 3: direct_v2/accounts/linked_accounts
-    try:
-        resp = cl.private_request("direct_v2/accounts/linked_accounts/")
-        print(f"  [FB-DEBUG] direct linked_accounts response: {resp}")
-    except Exception as e:
-        print(f"  [FB-DEBUG] direct linked_accounts request failed: {e}")
 
-    # Fallback: env var / hardcoded
-    if fallback_id and str(fallback_id) != "0":
-        print(f"  [FB-DEBUG] Using fallback page_id from env/hardcoded: {fallback_id}")
-        return str(fallback_id)
-
-    print(f"  [FB-DEBUG] Could not resolve any FB page ID — crosspost will be skipped")
-    return None
+def _host_video(video_path):
+    """Upload video to transfer.sh and return a public HTTPS URL."""
+    filename = Path(video_path).name
+    print(f"  Hosting video on transfer.sh...")
+    with open(video_path, "rb") as f:
+        r = requests.put(
+            f"https://transfer.sh/{filename}",
+            data=f,
+            headers={"Max-Days": "1"},
+            timeout=180,
+        )
+    r.raise_for_status()
+    url = r.text.strip()
+    print(f"  Hosted: {url}")
+    return url
 
 
 def upload_to_instagram(video_path, track_info):
-    import logging
-    from instagrapi import Client
-
-    username    = os.environ.get("IG_USERNAME", "")
-    password    = os.environ.get("IG_PASSWORD", "")
-    session_raw = os.environ.get("IG_SESSION_JSON", "")
-    fb_page_id  = os.environ.get("IG_FB_PAGE_ID", "1097766650082927")
-
-    if not username or not password:
-        raise RuntimeError("IG_USERNAME and IG_PASSWORD env vars required")
-
-    cl = Client()
-    cl.logger.setLevel(logging.DEBUG)
-    handler = logging.StreamHandler()
-    handler.setLevel(logging.DEBUG)
-    cl.logger.addHandler(handler)
-
-    session_file = Path("ig_session.json")
-    # Only fall back to the (potentially stale) secret if Drive didn't already
-    # download a fresh ig_session.json in the download_state step.
-    if not session_file.exists() and session_raw:
-        session_file.write_text(session_raw)
-    if session_file.exists():
-        cl.load_settings(str(session_file))
-        print("  Loaded saved IG session")
-
-    cl.login(username, password)
-    cl.dump_settings(str(session_file))
+    token = os.environ.get("FB_PAGE_TOKEN", "")
+    if not token:
+        raise RuntimeError("FB_PAGE_TOKEN env var required")
 
     caption, tags = generate_caption_and_tags(track_info)
     print(f"  Caption: {caption[:60]}...")
     print(f"  Tags ({len(tags)}): {' '.join('#'+t for t in tags[:8])}...")
 
-    linked_page_id = _resolve_fb_page_id(cl, fb_page_id)
+    video_url = _host_video(video_path)
 
-    extra_data = {
-        "like_count_hidden": 1,
-        "like_and_view_counts_disabled": 1,
-    }
-    if linked_page_id:
-        # share_to_fb_destinations must be a Python list — instagrapi JSON-encodes
-        # the whole dict, so passing json.dumps() here would double-encode it into
-        # a string-inside-a-string and Instagram would ignore it.
-        extra_data["share_to_facebook"] = 1
-        extra_data["share_to_feed"] = "1"
-        extra_data["share_to_fb_destinations"] = [linked_page_id]
-        print(f"  Attempting crosspost to FB page: {linked_page_id}")
-        print(f"  [FB-DEBUG] extra_data being sent: {extra_data}")
+    # Step 1: create media container
+    print("  Creating IG media container...")
+    r = requests.post(f"{GRAPH_API}/{IG_USER_ID}/media", params={
+        "media_type":  "REELS",
+        "video_url":   video_url,
+        "caption":     caption,
+        "access_token": token,
+    }, timeout=60)
+    if not r.ok:
+        raise RuntimeError(f"IG container creation failed: {r.status_code} {r.text}")
+    container_id = r.json()["id"]
+    print(f"  Container: {container_id}")
+
+    # Step 2: wait for Instagram to process the video
+    print("  Waiting for processing", end="", flush=True)
+    for _ in range(40):
+        time.sleep(10)
+        r = requests.get(f"{GRAPH_API}/{container_id}", params={
+            "fields":       "status_code,status",
+            "access_token": token,
+        }, timeout=30)
+        data   = r.json()
+        status = data.get("status_code", "")
+        print(f"  [{status}]", end="", flush=True)
+        if status == "FINISHED":
+            print()
+            break
+        if status == "ERROR":
+            raise RuntimeError(f"IG container processing error: {data}")
     else:
-        print("  No FB page linked — skipping Facebook cross-post")
+        raise RuntimeError("IG container processing timed out after 400s")
 
-    print("  Uploading Reel...")
-    media = cl.clip_upload(str(video_path), caption=caption, extra_data=extra_data)
+    # Step 3: publish
+    print("  Publishing Reel...")
+    r = requests.post(f"{GRAPH_API}/{IG_USER_ID}/media_publish", params={
+        "creation_id":  container_id,
+        "access_token": token,
+    }, timeout=60)
+    if not r.ok:
+        raise RuntimeError(f"IG publish failed: {r.status_code} {r.text}")
+    media_id = r.json()["id"]
 
-    # Post-upload: check if crosspost succeeded
-    print(f"  [FB-DEBUG] Upload response — pk={media.pk}  code={media.code}")
-    try:
-        info = cl.media_info(media.pk).dict()
-        crosspost_keys = {k: v for k, v in info.items()
-                         if any(x in str(k).lower() for x in ("cross", "fb", "facebook", "page"))}
-        print(f"  [FB-DEBUG] Crosspost-related fields in media_info: {crosspost_keys}")
-    except Exception as e:
-        print(f"  [FB-DEBUG] media_info check failed: {e}")
-
-    url = f"https://www.instagram.com/reel/{media.code}/"
+    url = f"https://www.instagram.com/reel/{media_id}/"
     print(f"\n  Live: {url}")
-    return str(media.pk), url
+    return media_id, url
 
 
 # ─── FACEBOOK UPLOAD ──────────────────────────────────────────────────────────
