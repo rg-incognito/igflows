@@ -442,10 +442,11 @@ def upload_to_instagram(video_path, track_info):
     # Step 1: create media container
     print("  Creating IG media container...")
     r = requests.post(f"{GRAPH_API}/{IG_USER_ID}/media", params={
-        "media_type":  "REELS",
-        "video_url":   video_url,
-        "caption":     caption,
-        "access_token": token,
+        "media_type":        "REELS",
+        "video_url":         video_url,
+        "caption":           caption,
+        "access_token":      token,
+        "like_count_hidden": True,
     }, timeout=60)
     if not r.ok:
         raise RuntimeError(f"IG container creation failed: {r.status_code} {r.text}")
