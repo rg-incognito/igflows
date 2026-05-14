@@ -419,22 +419,23 @@ def generate_caption_and_tags(track_info):
     all_tags = list(dict.fromkeys(all_tags))[:20]   # deduplicate, IG sweet-spot cap
 
     hashtags = " ".join(f"#{t}" for t in all_tags)
-    caption  = f"{hook}\n\n{hashtags}"
+    music_credit = f"🎵 {track_info['title']} — {track_info['artist']}"
+    caption  = f"{hook}\n\n{music_credit}\n\n{hashtags}"
     return caption, all_tags
 
 
 IG_USER_ID = "17841444241769784"
-GRAPH_API  = "https://graph.facebook.com/v19.0"
+GRAPH_API  = "https://graph.facebook.com/v22.0"
 
 
-def upload_to_instagram(video_path, track_info):
+def upload_to_instagram(video_path, track_info, caption=None):
     token = os.environ.get("FB_PAGE_TOKEN", "")
     if not token:
         raise RuntimeError("FB_PAGE_TOKEN env var required")
 
-    caption, tags = generate_caption_and_tags(track_info)
+    if caption is None:
+        caption, _ = generate_caption_and_tags(track_info)
     print(f"  Caption: {caption[:60]}...")
-    print(f"  Tags ({len(tags)}): {' '.join('#'+t for t in tags[:8])}...")
 
     print("  Hosting video on Google Drive (temp public)...")
     video_url, temp_drive_id = drive.upload_public_temp(video_path)
@@ -764,12 +765,14 @@ def run():
     print("\n[4/4] Uploading to Instagram...")
     tg("IG Step 4/4 - Uploading to Instagram...")
 
+    shared_caption, _ = generate_caption_and_tags(track_info)
+
     if ckpt.past(state, "uploaded"):
         media_id = cp.get("media_id", "")
         url = cp.get("ig_url", f"https://www.instagram.com/reel/{media_id}/")
         print(f"  Already uploaded: {url}")
     else:
-        media_id, url = upload_to_instagram(output_file, track_info)
+        media_id, url = upload_to_instagram(output_file, track_info, shared_caption)
         ckpt.save("uploaded", selected_videos=selected_videos,
                   track_id=cp["track_id"], track_title=cp.get("track_title", ""),
                   audio_file=str(audio_file), output_file=output_path,
@@ -777,10 +780,9 @@ def run():
         state = "uploaded"
 
     # Facebook post — uses Graph API directly (native crosspost unreliable via private API)
-    fb_caption, _ = generate_caption_and_tags(track_info)
     fb_url = None
     try:
-        fb_url = upload_to_facebook(output_file, fb_caption)
+        fb_url = upload_to_facebook(output_file, shared_caption)
     except Exception as e:
         print(f"  FB post failed (non-fatal): {e}")
         tg(f"⚠️ FB post failed: {e}")
